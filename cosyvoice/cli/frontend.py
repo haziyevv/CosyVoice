@@ -34,7 +34,7 @@ except ImportError:
     use_ttsfrd = False
 from cosyvoice.utils.file_utils import logging
 from cosyvoice.utils.frontend_utils import contains_chinese, replace_blank, replace_corner_mark, remove_bracket, spell_out_number, split_paragraph, is_only_punctuation
-
+from tritonclient.http import InferenceServerClient, InferInput, InferRequestedOutput
 
 class CosyVoiceFrontEnd:
 
@@ -48,13 +48,19 @@ class CosyVoiceFrontEnd:
         self.tokenizer = get_tokenizer()
         self.feat_extractor = feat_extractor
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-        option = onnxruntime.SessionOptions()
-        option.graph_optimization_level = onnxruntime.GraphOptimizationLevel.ORT_ENABLE_ALL
-        option.intra_op_num_threads = 1
-        self.campplus_session = onnxruntime.InferenceSession(campplus_model, sess_options=option, providers=["CPUExecutionProvider"])
-        self.speech_tokenizer_session = onnxruntime.InferenceSession(speech_tokenizer_model, sess_options=option,
-                                                                     providers=["CUDAExecutionProvider" if torch.cuda.is_available() else
-                                                                                "CPUExecutionProvider"])
+        # option = onnxruntime.SessionOptions()
+        # option.graph_optimization_level = onnxruntime.GraphOptimizationLevel.ORT_ENABLE_ALL
+        # option.intra_op_num_threads = 1
+        # self.campplus_session = onnxruntime.InferenceSession(campplus_model, sess_options=option, providers=["CPUExecutionProvider"])
+        # self.speech_tokenizer_session = onnxruntime.InferenceSession(speech_tokenizer_model, sess_options=option,
+        #                                                              providers=["CUDAExecutionProvider" if torch.cuda.is_available() else
+        #                                                                         "CPUExecutionProvider"])
+
+        # ---------- triton client  ----------
+        self.triton_client = InferenceServerClient(url="localhost:8000")  # Triton client
+        self.campplus_model_name = "campplus"
+        self.speech_tokenizer_model_name = "speech_tokenizer"
+        # ---------- end of triton client  ----------
         if os.path.exists(spk2info):
             self.spk2info = torch.load(spk2info, map_location=self.device)
         else:
@@ -92,12 +98,31 @@ class CosyVoiceFrontEnd:
     def _extract_speech_token(self, speech):
         assert speech.shape[1] / 16000 <= 30, 'do not support extract speech token for audio longer than 30s'
         feat = whisper.log_mel_spectrogram(speech, n_mels=128)
-        speech_token = self.speech_tokenizer_session.run(None,
-                                                         {self.speech_tokenizer_session.get_inputs()[0].name:
-                                                          feat.detach().cpu().numpy(),
-                                                          self.speech_tokenizer_session.get_inputs()[1].name:
-                                                          np.array([feat.shape[2]], dtype=np.int32)})[0].flatten().tolist()
-        speech_token = torch.tensor([speech_token], dtype=torch.int32).to(self.device)
+        # speech_token = self.speech_tokenizer_session.run(None,
+        #                                                  {self.speech_tokenizer_session.get_inputs()[0].name:
+        #                                                   feat.detach().cpu().numpy(),
+        #                                                   self.speech_tokenizer_session.get_inputs()[1].name:
+        #                                                   np.array([feat.shape[2]], dtype=np.int32)})[0].flatten().tolist()
+        # speech_token = torch.tensor([speech_token], dtype=torch.int32).to(self.device)
+
+        # ---------- triton client  ----------
+        input_feats = InferInput("feats", feat.shape, "FP32")
+        input_feats.set_data_from_numpy(feat.detach().cpu().numpy())
+
+        input_len = InferInput("feats_length", [1], "INT32")
+        input_len.set_data_from_numpy(np.array([feat.shape[2]], dtype=np.int32))
+
+        output = InferRequestedOutput("indices")
+
+        result = self.triton_client.infer(
+            model_name=self.speech_tokenizer_model_name,
+            inputs=[input_feats, input_len],
+            outputs=[output]
+        )
+        speech_token = result.as_numpy("indices")
+        speech_token = torch.tensor(speech_token, dtype=torch.int32).to(self.device)
+        # ---------- end of triton client  ----------
+
         speech_token_len = torch.tensor([speech_token.shape[1]], dtype=torch.int32).to(self.device)
         return speech_token, speech_token_len
 
@@ -107,9 +132,26 @@ class CosyVoiceFrontEnd:
                            dither=0,
                            sample_frequency=16000)
         feat = feat - feat.mean(dim=0, keepdim=True)
-        embedding = self.campplus_session.run(None,
-                                              {self.campplus_session.get_inputs()[0].name: feat.unsqueeze(dim=0).cpu().numpy()})[0].flatten().tolist()
-        embedding = torch.tensor([embedding]).to(self.device)
+        # embedding = self.campplus_session.run(None,
+        #                                       {self.campplus_session.get_inputs()[0].name: feat.unsqueeze(dim=0).cpu().numpy()})[0].flatten().tolist()
+        # embedding = torch.tensor([embedding]).to(self.device)
+
+        # ---------- triton client  ----------
+        feat_np = feat.unsqueeze(dim=0).cpu().numpy()
+
+        input_tensor = InferInput("input", feat_np.shape, "FP32")
+        input_tensor.set_data_from_numpy(feat_np)
+        output = InferRequestedOutput("output")
+
+        result = self.triton_client.infer(
+            model_name=self.campplus_model_name,
+            inputs=[input_tensor],
+            outputs=[output]
+        )
+        embedding = result.as_numpy("output")
+        embedding = torch.tensor(embedding, dtype=torch.float32).to(self.device)
+        # ---------- end of triton client  ----------
+
         return embedding
 
     def _extract_speech_feat(self, speech):

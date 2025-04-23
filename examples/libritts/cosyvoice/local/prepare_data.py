@@ -9,24 +9,23 @@ logger = logging.getLogger()
 
 
 def main():
-    wavs = list(glob.glob('{}/*/*/*wav'.format(args.src_dir)))
-
+    wavs = list(glob.glob('{}/*.wav'.format(args.src_dir)))
     utt2wav, utt2text, utt2spk, spk2utt = {}, {}, {}, {}
+    speaker = 'elise'  # Fixed speaker ID for all utterances
+    spk2utt[speaker] = []  # Initialize the list for our single speaker
+    
     for wav in tqdm(wavs):
-        txt = wav.replace('.wav', '.normalized.txt')
+        txt = wav.replace('.wav', '.txt')  # Changed from .normalized.txt to .txt
         if not os.path.exists(txt):
-            logger.warning('{} do not exsist'.format(txt))
+            logger.warning('{} does not exist'.format(txt))
             continue
         with open(txt) as f:
-            content = ''.join(l.replace('\n', '') for l in f.readline())
+            content = ''.join(l.strip() for l in f.readlines())  # Changed to handle multiple lines
         utt = os.path.basename(wav).replace('.wav', '')
-        spk = utt.split('_')[0]
         utt2wav[utt] = wav
         utt2text[utt] = content
-        utt2spk[utt] = spk
-        if spk not in spk2utt:
-            spk2utt[spk] = []
-        spk2utt[spk].append(utt)
+        utt2spk[utt] = speaker
+        spk2utt[speaker].append(utt)
 
     with open('{}/wav.scp'.format(args.des_dir), 'w') as f:
         for k, v in utt2wav.items():
