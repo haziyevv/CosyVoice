@@ -27,7 +27,7 @@ def set_seeds(seed=1986):
 
 # Initialize models
 set_seeds()
-cosyvoice_model = CosyVoice2('old/CosyVoice2-0.5B', load_jit=False, load_trt=False, fp16=False, use_flow_cache=False)
+cosyvoice_model = CosyVoice2('pretrained_models/clipped', load_jit=False, load_trt=False, fp16=False, use_flow_cache=False, use_traced_llm=True)
 
 
 @app.post("/tts")
@@ -65,4 +65,4 @@ async def tts_generate(
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=2000)
+    uvicorn.run(app, host="0.0.0.0", port=2026)
