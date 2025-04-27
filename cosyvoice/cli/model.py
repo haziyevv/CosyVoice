@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 import os
-from typing import Generator
+from typing import Generator, List
 import torch
 import numpy as np
 import threading
@@ -361,67 +361,6 @@ class CosyVoice2Model(CosyVoiceModel):
         #assert self.use_flow_cache is True, "get_trt_kwargs is set for flow cache mode. If you want to use trt with use_flow_cache=False, please set higher max_shape"
         return {'min_shape': min_shape, 'opt_shape': opt_shape, 'max_shape': max_shape, 'input_names': input_names}
 
-    def llm_job(self, text, prompt_text, llm_prompt_speech_token, llm_embedding, uuid):
-        with self.llm_context, torch.cuda.amp.autocast(self.fp16):
-            if isinstance(text, Generator):
-                assert isinstance(self, CosyVoice2Model), 'streaming input text is only implemented for CosyVoice2!'
-                for i in self.llm.inference_bistream(text=text,
-                                                   prompt_text=prompt_text.to(self.device),
-                                                   prompt_text_len=torch.tensor([prompt_text.shape[1]], dtype=torch.int32).to(self.device),
-                                                   prompt_speech_token=llm_prompt_speech_token.to(self.device),
-                                                   prompt_speech_token_len=torch.tensor([llm_prompt_speech_token.shape[1]], dtype=torch.int32).to(self.device),
-                                                   embedding=llm_embedding.to(self.device)):
-                    self.tts_speech_token_dict[uuid].append(i)
-            else:
-                # Convert all inputs to long type and move to device
-                text = text.long().to(self.device)
-                prompt_text = prompt_text.long().to(self.device)
-                llm_prompt_speech_token = llm_prompt_speech_token.long().to(self.device)
-                llm_embedding = llm_embedding.to(self.device)
-
-                # Initialize with original inputs
-                current_text = text
-                current_text_len = torch.tensor([text.shape[1]], dtype=torch.int32, device=self.device)
-                current_prompt_text = prompt_text
-                current_prompt_text_len = torch.tensor([prompt_text.shape[1]], dtype=torch.int32, device=self.device)
-                current_prompt_speech = llm_prompt_speech_token
-                current_prompt_speech_len = torch.tensor([llm_prompt_speech_token.shape[1]], dtype=torch.int32, device=self.device)
-
-                # Generate tokens until we hit EOS or max length
-                max_len = int(text.shape[1] * 20)  # max_token_text_ratio default is 20
-                min_len = int(text.shape[1] * 2)   # min_token_text_ratio default is 2
-                
-                for i in range(max_len):
-                    # Get next token from traced model
-                    token = self.llm(
-                        text=current_text,
-                        text_len=current_text_len,
-                        prompt_text=current_prompt_text,
-                        prompt_text_len=current_prompt_text_len,
-                        prompt_speech_token=current_prompt_speech,
-                        prompt_speech_token_len=current_prompt_speech_len,
-                        embedding=llm_embedding
-                    )
-                    
-                    # Check if we got a valid token
-                    if token is None or token.numel() == 0:
-                        break
-                        
-                    token = token.item()
-                    if token == self.speech_token_size and i >= min_len:
-                        break
-                    if token >= self.speech_token_size:
-                        continue
-                    # Add valid token to output
-                    self.tts_speech_token_dict[uuid].append(token)
-                    
-                    # Update input for next iteration - use the generated token as new input
-                    new_token_tensor = torch.tensor([[token]], dtype=torch.long, device=self.device)
-                    current_prompt_speech = torch.cat([current_prompt_speech, new_token_tensor], dim=1)
-                    current_prompt_speech_len = torch.tensor([current_prompt_speech.shape[1]], dtype=torch.int32, device=self.device)
-                    
-        self.llm_end_dict[uuid] = True
-
     def token2wav(self, token, prompt_token, prompt_feat, embedding, uuid, finalize=False, speed=1.0):
         with torch.cuda.amp.autocast(self.fp16):
             tts_mel, self.flow_cache_dict[uuid] = self.flow.inference(token=token.to(self.device),
@@ -523,3 +462,73 @@ class CosyVoice2Model(CosyVoiceModel):
             self.hift_cache_dict.pop(this_uuid)
             self.flow_cache_dict.pop(this_uuid)
         torch.cuda.empty_cache()
+
+    def sampling_ids(
+            self,
+            weighted_scores: torch.Tensor,
+            decoded_tokens: List,
+            sampling: int,
+            ignore_eos: bool = True,
+    ):
+        num_trials, max_trials = 0, 100
+        while True:
+            top_ids = self.sampling(weighted_scores, decoded_tokens, sampling)
+            if (not ignore_eos) or (self.speech_token_size not in top_ids):
+                break
+            import pdb; pdb.set_trace()
+            
+            num_trials += 1
+            if num_trials > max_trials:
+                raise RuntimeError('sampling reaches max_trials {} and still get eos when ignore_eos is True, check your input!'.format(max_trials))
+        return top_ids
+
+    def llm_job(self, text, prompt_text, llm_prompt_speech_token, llm_embedding, uuid):
+        text=text.to(self.device)
+        text_len=torch.tensor([text.shape[1]], dtype=torch.int32).to(self.device)
+        prompt_text=prompt_text.to(self.device)
+        prompt_text_len=torch.tensor([prompt_text.shape[1]], dtype=torch.int32).to(self.device)
+        prompt_speech_token=llm_prompt_speech_token.to(self.device)
+        prompt_speech_token_len=torch.tensor([llm_prompt_speech_token.shape[1]], dtype=torch.int32).to(self.device)
+        embedding=llm_embedding.to(self.device)
+        llm_input_size = 896
+        max_token_text_ratio = 20
+        min_token_text_ratio = 2
+        sampling = 25
+
+        device = 'cuda' if torch.cuda.is_available() else 'cpu'
+        text = torch.concat([prompt_text, text], dim=1)
+        text_len += prompt_text_len
+        text = self.qwen2_embedder_traced(text)
+        
+        sos_eos_emb = self.traced_llm_embedding[0].reshape(1, 1, -1)
+        task_id_emb = self.traced_llm_embedding[1].reshape(1, 1, -1)
+
+        if prompt_speech_token_len != 0:
+            prompt_speech_token_emb = self.traced_speech_embedding(prompt_speech_token)
+        else:
+            prompt_speech_token_emb = torch.zeros(1, 0, llm_input_size, dtype=text.dtype).to(device)
+        
+        lm_input = torch.concat([sos_eos_emb, text, task_id_emb, prompt_speech_token_emb], dim=1)
+
+        min_len = int((text_len - prompt_text_len) * min_token_text_ratio)
+        max_len = int((text_len - prompt_text_len) * max_token_text_ratio)
+
+        out_tokens = []
+        #cache = None
+        B, Hds, Hd = 1, 2, 64
+        empty_kv = torch.zeros(B, Hds, 0, Hd, device="cuda", dtype=torch.float16)  # or float32 if your model is
+        cache = tuple((empty_kv.clone(), empty_kv.clone()) for _ in range(24))
+        for i in range(max_len):
+            logp, cache = self.llm(lm_input, cache)
+            top_ids = self.sampling_ids(logp.squeeze(dim=0), out_tokens, sampling, ignore_eos=True if i < min_len else False).item()
+            if top_ids == self.speech_token_size:
+                break
+            if top_ids > self.speech_token_size:
+                continue
+
+            out_tokens.append(top_ids)
+            lm_input = self.traced_speech_embedding[top_ids].reshape(1, 1, -1)
+
+            self.tts_speech_token_dict[uuid].append(top_ids)
+        self.llm_end_dict[uuid] = True
+

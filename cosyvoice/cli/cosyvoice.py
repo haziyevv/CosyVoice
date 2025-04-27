@@ -22,174 +22,95 @@ from cosyvoice.cli.frontend import CosyVoiceFrontEnd
 from cosyvoice.cli.model import CosyVoiceModel, CosyVoice2Model
 from cosyvoice.utils.file_utils import logging
 from cosyvoice.utils.class_utils import get_model_type
+from cosyvoice.utils.common import ras_sampling
 import torch
+import functools
+
 # from cosyvoice.llm_wrapper import Qwen2LMOnnxWrapper
+import random
+import torch
+import torch.nn as nn
+import numpy as np
 
 import torch
 import torch.nn as nn
 
-import torch
-import torch.nn as nn
+
+TRACED_LLM_EMBEDDING_PATH = "llm_embedding_fp32_tracing.pt"
+TRACED_SPEECH_EMBEDDING_PATH = "speech_embedding_fp32_tracing.pt"
+
 
 class Qwen2LMWrapper(nn.Module):
-    def __init__(self, model, is_tracing=False):
+    def __init__(self, model):
         super().__init__()
         self.model = model
-        self.is_tracing = is_tracing
-        self.speech_token_size = model.speech_token_size
-        self.llm_input_size = model.llm_input_size
-        self.speech_embedding = model.speech_embedding
-        self.llm_embedding = model.llm_embedding
         self.llm_decoder = model.llm_decoder
-        self.sos_eos = model.sos_eos
-        self.task_id = model.task_id
 
-    def forward(self,
-                text, text_len,
-                prompt_text, prompt_text_len,
-                prompt_speech_token, prompt_speech_token_len,
-                embedding):
-        if not self.is_tracing:
-            return self.inference(text, text_len, prompt_text, prompt_text_len,
-                                prompt_speech_token, prompt_speech_token_len, embedding)
-        
-        # During tracing, use deterministic settings
-        device = text.device
-        text = torch.concat([prompt_text, text], dim=1)
-        text_len += prompt_text_len
-        text = self.model.llm.model.model.embed_tokens(text)
+    def forward(self, lm_input, cache):
+        y_pred, new_cache = self.model.llm.forward_one_step(
+            lm_input,
+            masks=torch.tril(torch.ones((1, lm_input.shape[1], lm_input.shape[1]), device=lm_input.device)).to(torch.bool),
+            cache=cache
+        )
+        logp = self.llm_decoder(y_pred[:, -1]).log_softmax(dim=-1)
+        return logp, new_cache
 
-        # Concat llm_input
-        sos_eos_emb = self.llm_embedding.weight[self.sos_eos].reshape(1, 1, -1)
-        task_id_emb = self.llm_embedding.weight[self.task_id].reshape(1, 1, -1)
-        if prompt_speech_token_len != 0:
-            prompt_speech_token_emb = self.speech_embedding(prompt_speech_token)
-        else:
-            prompt_speech_token_emb = torch.zeros(1, 0, self.llm_input_size, dtype=text.dtype).to(device)
-        lm_input = torch.concat([sos_eos_emb, text, task_id_emb, prompt_speech_token_emb], dim=1)
-
-        # For tracing, just do one forward pass
-        y_pred, cache = self.model.llm.forward_one_step(lm_input,
-                                                  masks=torch.tril(torch.ones((1, lm_input.shape[1], lm_input.shape[1]), device=lm_input.device)).to(torch.bool),
-                                                  cache=None)
-        logp = self.llm_decoder(y_pred[:, -1])
-        
-        # Process logits into a token ID
-        logp = torch.nn.functional.log_softmax(logp, dim=-1)
-        # During tracing we use greedy sampling (argmax) for deterministic behavior
-        token_id = torch.argmax(logp, dim=-1)
-        # If token_id > speech_token_size, set it to speech_token_size (EOS)
-        token_id = torch.where(token_id > self.speech_token_size, 
-                             torch.tensor(self.speech_token_size, device=token_id.device),
-                             token_id)
-        return token_id
-
-    @torch.inference_mode()
-    def inference(self,
-            text: torch.Tensor,
-            text_len: torch.Tensor,
-            prompt_text: torch.Tensor,
-            prompt_text_len: torch.Tensor,
-            prompt_speech_token: torch.Tensor,
-            prompt_speech_token_len: torch.Tensor,
-            embedding: torch.Tensor,
-            sampling: int = 25,
-            max_token_text_ratio: float = 20,
-            min_token_text_ratio: float = 2,
-    ) -> Generator[torch.Tensor, None, None]:
-        device = text.device
-        text = torch.concat([prompt_text, text], dim=1)
-        text_len += prompt_text_len
-        text = self.model.llm.model.model.embed_tokens(text)
-
-        # Concat llm_input
-        sos_eos_emb = self.llm_embedding.weight[self.sos_eos].reshape(1, 1, -1)
-        task_id_emb = self.llm_embedding.weight[self.task_id].reshape(1, 1, -1)
-        if prompt_speech_token_len != 0:
-            prompt_speech_token_emb = self.speech_embedding(prompt_speech_token)
-        else:
-            prompt_speech_token_emb = torch.zeros(1, 0, self.llm_input_size, dtype=text.dtype).to(device)
-        lm_input = torch.concat([sos_eos_emb, text, task_id_emb, prompt_speech_token_emb], dim=1)
-
-        # Cal min/max_length
-        min_len = int((text_len - prompt_text_len) * min_token_text_ratio)
-        max_len = int((text_len - prompt_text_len) * max_token_text_ratio)
-
-        # Step by step decode
-        out_tokens = []
-        cache = None
-        for i in range(max_len):
-            y_pred, cache = self.model.llm.forward_one_step(lm_input,
-                                                      masks=torch.tril(torch.ones((1, lm_input.shape[1], lm_input.shape[1]), device=lm_input.device)).to(torch.bool),
-                                                      cache=cache)
-            logp = self.llm_decoder(y_pred[:, -1]).log_softmax(dim=-1)
-            top_ids = self.model.sampling_ids(logp.squeeze(dim=0), out_tokens, sampling, ignore_eos=True if i < min_len else False).item()
-            if top_ids == self.speech_token_size:
-                break
-            if top_ids > self.speech_token_size:
-                continue
-            # in stream mode, yield token one by one
-            yield top_ids
-            out_tokens.append(top_ids)
-            lm_input = self.speech_embedding.weight[top_ids].reshape(1, 1, -1)
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 def create_traced_model(model_dir):
-    """Create a traced version of the Qwen2 LLM model"""
-    import yaml
-    from hyperpyyaml import load_hyperpyyaml
-    import pdb; pdb.set_trace()
-    # Load the original model configuration
+    """Create and save traced versions of both embedder and LLM"""
+    # Load model as before
+
+    def set_seeds(seed=1986):
+        random.seed(seed)
+        np.random.seed(seed)
+        torch.manual_seed(seed)
+        torch.cuda.manual_seed_all(seed)
+        torch.backends.cudnn.deterministic = True
+        torch.backends.cudnn.benchmark = False
+        os.environ['PYTHONHASHSEED'] = str(seed)
+
+    # Initialize models
+    set_seeds()
     with open(f'{model_dir}/cosyvoice2.yaml', 'r') as f:
         configs = load_hyperpyyaml(f, overrides={'qwen_pretrain_path': os.path.join(model_dir, 'CosyVoice-BlankEN')})
     
-    # Initialize the model
-    from cosyvoice.cli.model import CosyVoice2Model
     model = CosyVoice2Model(configs['llm'], configs['flow'], configs['hift'], False, False)
     model.load(f'{model_dir}/llm.pt',
               f'{model_dir}/flow.pt',
               f'{model_dir}/hift.pt')
     
-    # Create the wrapper in tracing mode
-    wrapped = Qwen2LMWrapper(model.llm, is_tracing=True).eval().cuda()
+    # # 1. Trace embedder
+   #embedder = model.llm.llm.model.model.embed_tokens.eval().cuda()
+
+    # dummy_text = torch.randint(0, 32000, (1, 60)).cuda()  # Adjust to match cache size
+    # traced_embedder = torch.jit.trace(embedder, (dummy_text,))
     
-    # Create dummy inputs
-    dummy_text = torch.randint(0, 1000, (1, 20)).to("cuda")
-    dummy_text_len = torch.tensor([20]).to("cuda")
-    dummy_prompt_text = torch.randint(0, 1000, (1, 10)).to("cuda")
-    dummy_prompt_text_len = torch.tensor([10]).to("cuda")
-    dummy_prompt_speech_token = torch.randint(0, 6561, (1, 15)).to("cuda")
-    dummy_prompt_speech_token_len = torch.tensor([15]).to("cuda")
-    dummy_embedding = torch.zeros(1, 192).to("cuda")
+    # 2. Trace LLM (post-embedding)
+    wrapped = Qwen2LMWrapper(model.llm).eval().cuda()
+    # dummy_lm_input = traced_embedder(dummy_text)  # Use output from traced embedder
     
-    # Set deterministic settings for tracing
-    torch.manual_seed(1986)
-    torch.backends.cudnn.deterministic = True
-    torch.backends.cudnn.benchmark = False
-    
+    with open('cache_file.pkl', 'rb') as fr:
+        dummy_cache = pickle.load(fr)
+    with open('lm_input_file.pkl', 'rb') as fr:
+        dummy_lm_input = pickle.load(fr)
     # Trace the model
-    traced = torch.jit.trace(
-        wrapped,
-        (dummy_text,
-         dummy_text_len,
-         dummy_prompt_text,
-         dummy_prompt_text_len,
-         dummy_prompt_speech_token,
-         dummy_prompt_speech_token_len,
-         dummy_embedding)
-    )
+    import pdb; pdb.set_trace()
+    traced_llm = torch.jit.trace(wrapped, (dummy_lm_input, dummy_cache))
     
-    # Save the traced model
-    traced_path = f"{model_dir}/qwen2lm_traced.pt"
-    traced.save(traced_path)
-    print(f"Traced model saved to {traced_path}")
+    # Save both models
+    traced_embedder_path = f"{model_dir}/qwen2_embedder_traced.pt"
+    traced_llm_path = f"{model_dir}/qwen2_llm_traced.pt"
     
-    # Reset deterministic settings
+    #traced_embedder.save(traced_embedder_path)
+    traced_llm.save(traced_llm_path)
+    
+    print(f"Traced models saved to {traced_embedder_path} and {traced_llm_path}")
     torch.backends.cudnn.deterministic = False
     torch.backends.cudnn.benchmark = True
-    
-    return traced_path
+
+    return traced_embedder_path, traced_llm_path
 
 class CosyVoice:
 
@@ -322,12 +243,21 @@ class CosyVoice2(CosyVoice):
         self.model.load('{}/llm.pt'.format(model_dir),
                         '{}/flow.pt'.format(model_dir) if use_flow_cache is False else '{}/flow.cache.pt'.format(model_dir),
                         '{}/hift.pt'.format(model_dir))
+
+
+        self.model.sampling = functools.partial(ras_sampling, top_p=0.8, top_k=25, win_size=10, tau_r=0.1)
         
         # Load the traced LLM model if it exists
-        traced_path = f"{model_dir}/qwen2lm_traced.pt"
+        traced_path = f"{model_dir}/qwen2_traced_optimized.pt"
+        embedder_traced_path = f"{model_dir}/qwen2_embedder_traced.pt"
         if use_traced_llm and os.path.exists(traced_path):
             logging.info('Loading traced LLM model from {}'.format(traced_path))
             self.model.llm = torch.jit.load(traced_path).to(device)
+
+            self.model.qwen2_embedder_traced = torch.jit.load(embedder_traced_path).to(device)
+            self.model.traced_llm_embedding = torch.load(TRACED_LLM_EMBEDDING_PATH, map_location="cuda")
+            self.model.traced_speech_embedding = torch.load(TRACED_SPEECH_EMBEDDING_PATH, map_location="cuda")
+        # Tensor, not Parameter
         else:
             logging.warning('Traced model not found at {}. Using original model.'.format(traced_path))
             self.model.llm.to(device)

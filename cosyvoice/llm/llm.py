@@ -190,12 +190,12 @@ class TransformerLM(torch.nn.Module):
         # 3. concat llm_input
         sos_eos_emb = self.llm_embedding.weight[self.sos_eos].reshape(1, 1, -1)
         task_id_emb = self.llm_embedding.weight[self.task_id].reshape(1, 1, -1)
+        import pdb; pdb.set_trace()
         if prompt_speech_token_len != 0:
             prompt_speech_token_emb = self.speech_embedding(prompt_speech_token)
         else:
             prompt_speech_token_emb = torch.zeros(1, 0, self.llm_input_size, dtype=text.dtype).to(device)
         lm_input = torch.concat([sos_eos_emb, embedding, text, task_id_emb, prompt_speech_token_emb], dim=1)
-
         # 4. cal min/max_length
         min_len = int((text_len - prompt_text_len) * min_token_text_ratio)
         max_len = int((text_len - prompt_text_len) * max_token_text_ratio)
@@ -387,8 +387,9 @@ class Qwen2LM(TransformerLM):
         text = torch.concat([prompt_text, text], dim=1)
         text_len += prompt_text_len
         text = self.llm.model.model.embed_tokens(text)
-
         # 3. concat llm_input
+        
+
         sos_eos_emb = self.llm_embedding.weight[self.sos_eos].reshape(1, 1, -1)
         task_id_emb = self.llm_embedding.weight[self.task_id].reshape(1, 1, -1)
         if prompt_speech_token_len != 0:
@@ -396,7 +397,7 @@ class Qwen2LM(TransformerLM):
         else:
             prompt_speech_token_emb = torch.zeros(1, 0, self.llm_input_size, dtype=text.dtype).to(device)
         lm_input = torch.concat([sos_eos_emb, text, task_id_emb, prompt_speech_token_emb], dim=1)
-
+        import pdb; pdb.set_trace()
         # 4. cal min/max_length
         min_len = int((text_len - prompt_text_len) * min_token_text_ratio)
         max_len = int((text_len - prompt_text_len) * max_token_text_ratio)
@@ -418,6 +419,8 @@ class Qwen2LM(TransformerLM):
             yield top_ids
             out_tokens.append(top_ids)
             lm_input = self.speech_embedding.weight[top_ids].reshape(1, 1, -1)
+            import pdb; pdb.set_trace()
+
 
     @torch.inference_mode()
     def inference_bistream(
