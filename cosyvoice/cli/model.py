@@ -482,6 +482,20 @@ class CosyVoice2Model(CosyVoiceModel):
                 raise RuntimeError('sampling reaches max_trials {} and still get eos when ignore_eos is True, check your input!'.format(max_trials))
         return top_ids
 
+    def tuple_to_tensor_cache(self, cache_tuple):
+        """Convert tuple of (k,v) to single tensor [L,2,B,H,S,D] for Triton."""
+        if not cache_tuple:
+            return None
+        L = len(cache_tuple)
+        # Each k,v is [B,H,S,D]
+        B, H, S, D = cache_tuple[0][0].shape
+        cache_tensor = torch.zeros(L, 2, B, H, S, D, device=cache_tuple[0][0].device, dtype=cache_tuple[0][0].dtype)
+        for i, (k, v) in enumerate(cache_tuple):
+            # k,v already in [B,H,S,D]
+            cache_tensor[i, 0] = k
+            cache_tensor[i, 1] = v
+        return cache_tensor
+
     def llm_job(self, text, prompt_text, llm_prompt_speech_token, llm_embedding, uuid):
         text=text.to(self.device)
         text_len=torch.tensor([text.shape[1]], dtype=torch.int32).to(self.device)
@@ -519,6 +533,7 @@ class CosyVoice2Model(CosyVoiceModel):
         empty_kv = torch.zeros(B, Hds, 0, Hd, device="cuda", dtype=torch.float16)  # or float32 if your model is
         cache = tuple((empty_kv.clone(), empty_kv.clone()) for _ in range(24))
         for i in range(max_len):
+            cache = self.tuple_to_tensor_cache(cache)
             logp, cache = self.llm(lm_input, cache)
             top_ids = self.sampling_ids(logp.squeeze(dim=0), out_tokens, sampling, ignore_eos=True if i < min_len else False).item()
             if top_ids == self.speech_token_size:

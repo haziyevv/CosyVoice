@@ -25,6 +25,7 @@ from cosyvoice.utils.class_utils import get_model_type
 from cosyvoice.utils.common import ras_sampling
 import torch
 import functools
+import pickle
 
 # from cosyvoice.llm_wrapper import Qwen2LMOnnxWrapper
 import random
@@ -45,8 +46,20 @@ class Qwen2LMWrapper(nn.Module):
         super().__init__()
         self.model = model
         self.llm_decoder = model.llm_decoder
+    
+    def tensor_to_tuple_cache(self, cache_tensor):
+        """Convert single tensor [L,2,B,H,S,D] to tuple of (k,v) expected by model."""
+        L = cache_tensor.shape[0]
+        cache_tuple = []
+        for i in range(L):
+            # From [L,2,B,H,S,D] -> [B,H,S,D]
+            k = cache_tensor[i, 0]  # Already in [B,H,S,D]
+            v = cache_tensor[i, 1]  # Already in [B,H,S,D]
+            cache_tuple.append((k, v))
+        return tuple(cache_tuple)
 
     def forward(self, lm_input, cache):
+        cache = self.tensor_to_tuple_cache(cache)
         y_pred, new_cache = self.model.llm.forward_one_step(
             lm_input,
             masks=torch.tril(torch.ones((1, lm_input.shape[1], lm_input.shape[1]), device=lm_input.device)).to(torch.bool),
@@ -57,6 +70,7 @@ class Qwen2LMWrapper(nn.Module):
 
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
 
 def create_traced_model(model_dir):
     """Create and save traced versions of both embedder and LLM"""
@@ -95,10 +109,11 @@ def create_traced_model(model_dir):
         dummy_cache = pickle.load(fr)
     with open('lm_input_file.pkl', 'rb') as fr:
         dummy_lm_input = pickle.load(fr)
-    # Trace the model
-    import pdb; pdb.set_trace()
-    traced_llm = torch.jit.trace(wrapped, (dummy_lm_input, dummy_cache))
     
+    # Trace the model
+    dummy_cache = tuple_to_tensor_cache(dummy_cache)
+    traced_llm = torch.jit.trace(wrapped, (dummy_lm_input, dummy_cache))
+    traced_llm = torch.jit.optimize_for_inference(traced_llm)
     # Save both models
     traced_embedder_path = f"{model_dir}/qwen2_embedder_traced.pt"
     traced_llm_path = f"{model_dir}/qwen2_llm_traced.pt"
@@ -244,11 +259,10 @@ class CosyVoice2(CosyVoice):
                         '{}/flow.pt'.format(model_dir) if use_flow_cache is False else '{}/flow.cache.pt'.format(model_dir),
                         '{}/hift.pt'.format(model_dir))
 
-
         self.model.sampling = functools.partial(ras_sampling, top_p=0.8, top_k=25, win_size=10, tau_r=0.1)
         
         # Load the traced LLM model if it exists
-        traced_path = f"{model_dir}/qwen2_traced_optimized.pt"
+        traced_path = f"{model_dir}/qwen2_llm_traced.pt"
         embedder_traced_path = f"{model_dir}/qwen2_embedder_traced.pt"
         if use_traced_llm and os.path.exists(traced_path):
             logging.info('Loading traced LLM model from {}'.format(traced_path))
