@@ -40,6 +40,20 @@ import torch.nn as nn
 TRACED_LLM_EMBEDDING_PATH = "llm_embedding_fp32_tracing.pt"
 TRACED_SPEECH_EMBEDDING_PATH = "speech_embedding_fp32_tracing.pt"
 
+def tuple_to_tensor_cache(cache_tuple):
+    """Convert tuple of (k,v) to single tensor [L,2,B,H,S,D] for Triton."""
+    if not cache_tuple:
+        return None
+    L = len(cache_tuple)
+    # Each k,v is [B,H,S,D]
+    B, H, S, D = cache_tuple[0][0].shape
+    cache_tensor = torch.zeros(L, 2, B, H, S, D, device=cache_tuple[0][0].device, dtype=cache_tuple[0][0].dtype)
+    for i, (k, v) in enumerate(cache_tuple):
+        # k,v already in [B,H,S,D]
+        cache_tensor[i, 0] = k
+        cache_tensor[i, 1] = v
+    return cache_tensor
+
 
 class Qwen2LMWrapper(nn.Module):
     def __init__(self, model):
@@ -48,33 +62,50 @@ class Qwen2LMWrapper(nn.Module):
         self.llm_decoder = model.llm_decoder
     
     def tensor_to_tuple_cache(self, cache_tensor):
-        """Convert single tensor [L,2,B,H,S,D] to tuple of (k,v) expected by model."""
         L = cache_tensor.shape[0]
         cache_tuple = []
         for i in range(L):
-            # From [L,2,B,H,S,D] -> [B,H,S,D]
-            k = cache_tensor[i, 0]  # Already in [B,H,S,D]
-            v = cache_tensor[i, 1]  # Already in [B,H,S,D]
+            k = cache_tensor[i, 0]
+            v = cache_tensor[i, 1]            
             cache_tuple.append((k, v))
         return tuple(cache_tuple)
-
+    
+    def tuple_to_tensor_cache(self, cache_tuple):
+        if not cache_tuple:
+            return None
+        L = len(cache_tuple)
+        B, H, S, D = cache_tuple[0][0].shape
+        cache_tensor = torch.zeros(
+            L, 2, B, H, S, D,
+            device=cache_tuple[0][0].device,
+            dtype=cache_tuple[0][0].dtype
+        )
+        for i, (k, v) in enumerate(cache_tuple):
+            cache_tensor[i, 0] = k
+            cache_tensor[i, 1] = v
+        return cache_tensor
+    
     def forward(self, lm_input, cache):
+        # Device is inferred from lm_input
         cache = self.tensor_to_tuple_cache(cache)
+        masks = torch.tril(torch.ones((1, lm_input.shape[1], lm_input.shape[1]), device=lm_input.device)).to(torch.bool)
+
         y_pred, new_cache = self.model.llm.forward_one_step(
             lm_input,
-            masks=torch.tril(torch.ones((1, lm_input.shape[1], lm_input.shape[1]), device=lm_input.device)).to(torch.bool),
+            masks=masks,
             cache=cache
         )
         logp = self.llm_decoder(y_pred[:, -1]).log_softmax(dim=-1)
-        return logp, new_cache
-
+        new_cache = self.tuple_to_tensor_cache(new_cache)
+        return (logp, new_cache)
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 
 def create_traced_model(model_dir):
-    """Create and save traced versions of both embedder and LLM"""
-    # Load model as before
+    """Create and save traced LLM on GPU explicitly."""
+    # Set device explicitly to CUDA (GPU)
+    device = torch.device("cuda")
 
     def set_seeds(seed=1986):
         random.seed(seed)
@@ -85,47 +116,49 @@ def create_traced_model(model_dir):
         torch.backends.cudnn.benchmark = False
         os.environ['PYTHONHASHSEED'] = str(seed)
 
-    # Initialize models
     set_seeds()
-    with open(f'{model_dir}/cosyvoice2.yaml', 'r') as f:
-        configs = load_hyperpyyaml(f, overrides={'qwen_pretrain_path': os.path.join(model_dir, 'CosyVoice-BlankEN')})
-    
-    model = CosyVoice2Model(configs['llm'], configs['flow'], configs['hift'], False, False)
-    model.load(f'{model_dir}/llm.pt',
-              f'{model_dir}/flow.pt',
-              f'{model_dir}/hift.pt')
-    
-    # # 1. Trace embedder
-   #embedder = model.llm.llm.model.model.embed_tokens.eval().cuda()
 
-    # dummy_text = torch.randint(0, 32000, (1, 60)).cuda()  # Adjust to match cache size
-    # traced_embedder = torch.jit.trace(embedder, (dummy_text,))
-    
-    # 2. Trace LLM (post-embedding)
-    wrapped = Qwen2LMWrapper(model.llm).eval().cuda()
-    # dummy_lm_input = traced_embedder(dummy_text)  # Use output from traced embedder
-    
+    with open(f'{model_dir}/cosyvoice2.yaml', 'r') as f:
+        configs = load_hyperpyyaml(
+            f, 
+            overrides={'qwen_pretrain_path': os.path.join(model_dir, 'CosyVoice-BlankEN')}
+        )
+
+    # Load model directly to GPU
+    model = CosyVoice2Model(configs['llm'], configs['flow'], configs['hift'], False, False)
+    model.load(
+        f'{model_dir}/llm.pt',
+        f'{model_dir}/flow.pt',
+        f'{model_dir}/hift.pt'
+    )
+    model.device = device
+    model.llm = model.llm.to(device)
+    model.flow = model.flow.to(device)
+    model.hift = model.hift.to(device)
+
+    wrapped = Qwen2LMWrapper(model.llm).eval().to(device)
+
+    # Load dummy data explicitly to GPU
     with open('cache_file.pkl', 'rb') as fr:
         dummy_cache = pickle.load(fr)
     with open('lm_input_file.pkl', 'rb') as fr:
         dummy_lm_input = pickle.load(fr)
-    
-    # Trace the model
-    dummy_cache = tuple_to_tensor_cache(dummy_cache)
+
+    dummy_lm_input = dummy_lm_input.to(device)
+    dummy_cache = tuple_to_tensor_cache(dummy_cache).to(device)
+
+    # Trace explicitly on GPU
     traced_llm = torch.jit.trace(wrapped, (dummy_lm_input, dummy_cache))
     traced_llm = torch.jit.optimize_for_inference(traced_llm)
-    # Save both models
-    traced_embedder_path = f"{model_dir}/qwen2_embedder_traced.pt"
-    traced_llm_path = f"{model_dir}/qwen2_llm_traced.pt"
-    
-    #traced_embedder.save(traced_embedder_path)
+
+    traced_llm_path = f"{model_dir}/qwen2_llm_traced_gpu.pt"
     traced_llm.save(traced_llm_path)
-    
-    print(f"Traced models saved to {traced_embedder_path} and {traced_llm_path}")
+
     torch.backends.cudnn.deterministic = False
     torch.backends.cudnn.benchmark = True
 
-    return traced_embedder_path, traced_llm_path
+    return traced_llm_path
+
 
 class CosyVoice:
 
@@ -264,9 +297,9 @@ class CosyVoice2(CosyVoice):
         # Load the traced LLM model if it exists
         traced_path = f"{model_dir}/qwen2_llm_traced.pt"
         embedder_traced_path = f"{model_dir}/qwen2_embedder_traced.pt"
-        if use_traced_llm and os.path.exists(traced_path):
-            logging.info('Loading traced LLM model from {}'.format(traced_path))
-            self.model.llm = torch.jit.load(traced_path).to(device)
+        if use_traced_llm and os.path.exists(embedder_traced_path):
+            #logging.info('Loading traced LLM model from {}'.format(traced_path))
+            #self.model.llm = torch.jit.load(traced_path).to(device)
 
             self.model.qwen2_embedder_traced = torch.jit.load(embedder_traced_path).to(device)
             self.model.traced_llm_embedding = torch.load(TRACED_LLM_EMBEDDING_PATH, map_location="cuda")

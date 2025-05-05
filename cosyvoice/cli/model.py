@@ -23,6 +23,7 @@ import uuid
 from cosyvoice.utils.common import fade_in_out
 from cosyvoice.utils.file_utils import convert_onnx_to_trt
 
+from tritonclient.http import InferenceServerClient, InferInput, InferRequestedOutput
 
 class CosyVoiceModel:
 
@@ -317,6 +318,7 @@ class CosyVoice2Model(CosyVoiceModel):
         self.llm_end_dict = {}
         self.flow_cache_dict = {}
         self.hift_cache_dict = {}
+        self.triton_client = InferenceServerClient(url="localhost:8000", verbose=False)
 
     def init_flow_cache(self):
         encoder_cache = {'offset': 0,
@@ -475,7 +477,6 @@ class CosyVoice2Model(CosyVoiceModel):
             top_ids = self.sampling(weighted_scores, decoded_tokens, sampling)
             if (not ignore_eos) or (self.speech_token_size not in top_ids):
                 break
-            import pdb; pdb.set_trace()
             
             num_trials += 1
             if num_trials > max_trials:
@@ -509,18 +510,16 @@ class CosyVoice2Model(CosyVoiceModel):
         min_token_text_ratio = 2
         sampling = 25
 
-        device = 'cuda' if torch.cuda.is_available() else 'cpu'
         text = torch.concat([prompt_text, text], dim=1)
         text_len += prompt_text_len
         text = self.qwen2_embedder_traced(text)
-        
         sos_eos_emb = self.traced_llm_embedding[0].reshape(1, 1, -1)
         task_id_emb = self.traced_llm_embedding[1].reshape(1, 1, -1)
 
         if prompt_speech_token_len != 0:
             prompt_speech_token_emb = self.traced_speech_embedding(prompt_speech_token)
         else:
-            prompt_speech_token_emb = torch.zeros(1, 0, llm_input_size, dtype=text.dtype).to(device)
+            prompt_speech_token_emb = torch.zeros(1, 0, llm_input_size, dtype=text.dtype).to(self.device)
         
         lm_input = torch.concat([sos_eos_emb, text, task_id_emb, prompt_speech_token_emb], dim=1)
 
@@ -530,11 +529,50 @@ class CosyVoice2Model(CosyVoiceModel):
         out_tokens = []
         #cache = None
         B, Hds, Hd = 1, 2, 64
-        empty_kv = torch.zeros(B, Hds, 0, Hd, device="cuda", dtype=torch.float16)  # or float32 if your model is
+        
+        # Ensure lm_input is on the correct device
+        lm_input = lm_input.to(self.device)
+        
+        # Create a cache that matches the exact structure expected by the traced model
+        empty_kv = torch.zeros(B, Hds, 0, Hd, device=self.device, dtype=torch.float32)  # or float32 if your model is
         cache = tuple((empty_kv.clone(), empty_kv.clone()) for _ in range(24))
+        cache = self.tuple_to_tensor_cache(cache)
+
         for i in range(max_len):
-            cache = self.tuple_to_tensor_cache(cache)
-            logp, cache = self.llm(lm_input, cache)
+            # Make sure everything is on the same device before converting to numpy
+            lm_input = lm_input.to(self.device)
+            cache = cache.to(self.device)
+            
+            # Convert to numpy for Triton input
+            lm_input_np = lm_input.detach().cpu().numpy()
+            cache_np = cache.detach().cpu().numpy()
+
+            input_lm = InferInput('lm_input', lm_input_np.shape, "FP32")  # Or "FP32" if float32
+            input_lm.set_data_from_numpy(lm_input_np)
+
+            input_cache = InferInput('cache', cache_np.shape, "FP32")  # Or "FP32"
+            input_cache.set_data_from_numpy(cache_np)
+
+            # Prepare requested outputs
+            output_logp = InferRequestedOutput('logits')    
+            output_new_cache = InferRequestedOutput('new_cache')
+
+            # Now infer
+            outputs = self.triton_client.infer(
+                model_name='qwen_llm',
+                inputs=[input_lm, input_cache],
+                outputs=[output_logp, output_new_cache]  
+            )
+
+            # Fetch outputs
+            logp_np = outputs.as_numpy('logits')     
+            new_cache_np = outputs.as_numpy('new_cache')
+
+            # Convert back to tensors on the appropriate device
+            logp = torch.from_numpy(logp_np).to(self.device)
+            cache = torch.from_numpy(new_cache_np).to(self.device)
+
+            #logp, cache = self.llm(lm_input_np, cache_np)
             top_ids = self.sampling_ids(logp.squeeze(dim=0), out_tokens, sampling, ignore_eos=True if i < min_len else False).item()
             if top_ids == self.speech_token_size:
                 break
@@ -546,4 +584,3 @@ class CosyVoice2Model(CosyVoiceModel):
 
             self.tts_speech_token_dict[uuid].append(top_ids)
         self.llm_end_dict[uuid] = True
-
