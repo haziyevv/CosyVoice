@@ -27,7 +27,7 @@ def set_seeds(seed=1986):
 
 # Initialize models
 set_seeds()
-cosyvoice_model = CosyVoice2('old/CosyVoice2-0.5B', load_jit=False, load_trt=False, fp16=False, use_flow_cache=False)
+cosyvoice_model = CosyVoice2('pretrained_models/CosyVoice2-0.5B', load_jit=False, load_trt=False, fp16=False, use_flow_cache=False)
 
 
 @app.post("/tts")
