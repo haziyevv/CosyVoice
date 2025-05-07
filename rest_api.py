@@ -27,8 +27,19 @@ def set_seeds(seed=1986):
 
 # Initialize models
 set_seeds()
-cosyvoice_model = CosyVoice2('pretrained_models/CosyVoice2-0.5B', load_jit=False, load_trt=False, fp16=False, use_flow_cache=False)
+device = torch.device("cuda:1" if torch.cuda.device_count() > 1 else "cuda:0")
+cosyvoice_model = CosyVoice2(
+    'pretrained_models/CosyVoice2-0.5B',
+    load_jit=False,
+    load_trt=False,
+    fp16=False,
+    use_flow_cache=False,
+)
 
+cosyvoice_model.model.device = device
+cosyvoice_model.model.llm.to(device)
+cosyvoice_model.model.flow.to(device)
+cosyvoice_model.model.hift.to(device)
 
 @app.post("/tts")
 async def tts_generate(
@@ -49,7 +60,7 @@ async def tts_generate(
         prompt_speech_16k = load_wav(tmp_path, 16000)
 
         model = cosyvoice_model
-
+        text = text.replace("!", "")
         outputs = list(model.inference_cross_lingual(text, prompt_speech_16k, stream=False))
         if not outputs:
             return JSONResponse(status_code=500, content={"error": "No output generated"})
