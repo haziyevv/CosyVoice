@@ -53,14 +53,17 @@ def main():
         for y in yamls:
             with open(y, 'r') as f:
                 dic_yaml = yaml.load(f, Loader=yaml.BaseLoader)
-                loss = float(dic_yaml['loss_dict']['loss'])
+                loss = float(dic_yaml['loss_dict']['acc']) # farid
+                #loss = float(dic_yaml['loss_dict']['loss'])
+
                 epoch = int(dic_yaml['epoch'])
                 step = int(dic_yaml['step'])
                 tag = dic_yaml['tag']
                 val_scores += [[epoch, step, loss, tag]]
+        
         sorted_val_scores = sorted(val_scores,
                                    key=lambda x: x[2],
-                                   reverse=False)
+                                   reverse=True)
         print("best val (epoch, step, loss, tag) = " +
               str(sorted_val_scores[:args.num]))
         path_list = [

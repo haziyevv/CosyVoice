@@ -155,6 +155,13 @@ class CosyVoice2(CosyVoice):
         self.model.load('{}/llm.pt'.format(model_dir),
                         '{}/flow.pt'.format(model_dir) if use_flow_cache is False else '{}/flow.cache.pt'.format(model_dir),
                         '{}/hift.pt'.format(model_dir))
+        # farid peft adition
+        from peft import PeftModel
+        self.model.llm.llm.model = PeftModel.from_pretrained(
+            self.model.llm.llm.model,
+            f"{model_dir}/llm-lora-only"
+        )
+        # -------
         if load_jit:
             self.model.load_jit('{}/flow.encoder.{}.zip'.format(model_dir, 'fp16' if self.fp16 is True else 'fp32'))
         if load_trt:

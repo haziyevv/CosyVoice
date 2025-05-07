@@ -22,7 +22,7 @@ import os
 import torch
 import torch.distributed as dist
 import deepspeed
-
+from peft import get_peft_model, LoraConfig, TaskType
 from hyperpyyaml import load_hyperpyyaml
 
 from torch.distributed.elastic.multiprocessing.errors import record
@@ -123,6 +123,21 @@ def main():
 
     # load checkpoint
     model = configs[args.model]
+
+    # farid peft addition
+    base_model = model.llm.model  # Qwen2ForCausalLM instance
+    lora_config = LoraConfig(
+        r=8,
+        lora_alpha=32,
+        lora_dropout=0.1,
+        bias="none",
+        task_type=TaskType.CAUSAL_LM,
+        target_modules=["q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj"]
+)
+
+    base_model = get_peft_model(base_model, lora_config)
+    model.llm.model = base_model  # insert back the PEFT-wrapped model
+    #   ----------------
     start_step, start_epoch = 0, -1
     if args.checkpoint is not None:
         if os.path.exists(args.checkpoint):

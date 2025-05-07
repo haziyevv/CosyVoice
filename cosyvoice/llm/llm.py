@@ -353,10 +353,11 @@ class Qwen2LM(TransformerLM):
         speech_token_len = batch['speech_token_len'].to(device)
 
         # 1. encode text_token
-        text_token_emb = self.llm.model.model.embed_tokens(text_token)
-
+        # text_token_emb = self.llm.model.model.embed_tokens(text_token)
+        text_token_emb = self.llm.model.get_input_embeddings()(text_token) # changes for peft
         # 2. encode speech_token
         speech_token_emb = self.speech_embedding(speech_token)
+
 
         # 3. prepare llm_input/target
         lm_target, lm_input, lm_input_len = self.prepare_lm_input_target(text_token, text_token_emb, text_token_len, speech_token, speech_token_emb, speech_token_len)
@@ -386,8 +387,8 @@ class Qwen2LM(TransformerLM):
         device = text.device
         text = torch.concat([prompt_text, text], dim=1)
         text_len += prompt_text_len
-        text = self.llm.model.model.embed_tokens(text)
-
+        #text = self.llm.model.model.embed_tokens(text)
+        text = self.llm.model.model.get_input_embeddings()(text)
         # 3. concat llm_input
         sos_eos_emb = self.llm_embedding.weight[self.sos_eos].reshape(1, 1, -1)
         task_id_emb = self.llm_embedding.weight[self.task_id].reshape(1, 1, -1)
