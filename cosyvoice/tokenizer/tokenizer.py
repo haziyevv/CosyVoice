@@ -238,6 +238,7 @@ def get_tokenizer(
     )
 
 
+
 class QwenTokenizer():
     def __init__(self, token_path, skip_special_tokens=True):
         super().__init__()
@@ -252,7 +253,12 @@ class QwenTokenizer():
                 '[quick_breath]',
                 "<laughter>", "</laughter>",
                 "[hissing]", "[sigh]", "[vocalized-noise]",
-                "[lipsmack]", "[mn]"
+                "[lipsmack]", "[mn]",
+                "[soft sigh]", "[giggles]",
+                "[throat‑clear]", "[stretch grunt]", "[snort‑laugh]", "[wheezes]", "[belly‑laugh]", "[groan‑yawn]", "[groans]", "[gentle sniffling]", 
+                "[shouts]", "[moans]", "[tongue click]", "[giggle]", "[surprise yelp]", "[heavy breathing]", "[stutter]", "[nose blow]", "[sobbing]",
+                "[teeth chatter]", "[yawn]", "[hiccups]", "[gasp]", "[excited whoop]", "[whistle]", "[lipsmack]", "[coughing fit]", "[mmm]", "[humming]", 
+                "[gulp]", "[sniff]", "[sighs]", "[kissing sounds]", "[outright scream]", "[ah]", "[burp]"
             ]
         }
         self.special_tokens = special_tokens
