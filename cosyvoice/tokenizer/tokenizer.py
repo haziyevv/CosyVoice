@@ -250,14 +250,17 @@ class QwenTokenizer():
                 '[breath]', '<strong>', '</strong>', '[noise]',
                 '[laughter]', '[cough]', '[clucking]', '[accent]',
                 '[quick_breath]',
-                "<laughter>", "</laughter>",
-                "[hissing]", "[sigh]", "[vocalized-noise]",
-                "[lipsmack]", "[mn]",
-                "[soft sigh]", "[giggles]",
-                "throat‑clear]", "[stretch grunt]", "[snort‑laugh]", "[wheezes]", "[belly‑laugh]", "[groan‑yawn]", "[groans]", 
-                "[gentle sniffling]","[shouts]", "[moans]", "[tongue click]", "[giggle]", "[surprise yelp]", "[heavy breathing]", 
-                "[stutter]", "[nose blow]", "[sobbing]","[teeth chatter]", "[yawn]", "[hiccups]", "[gasp]", "[excited whoop]", 
-                "[whistle]", "[coughing fit]", "[mmm]", "[humming]","[gulp]", "[sniff]", "[sighs]", "[kissing sounds]", "[outright scream]", "[ah]", "[burp]"
+                "<laughter>", "</laughter>", "<groan>", "</groan>",
+                "<whisper>", "</whisper>", "<shout>", "</shout>",
+                "<cry>", "</cry>", "<scream>", "</scream>", "<moan>", "</moan>",
+                "[chuckle]", "[groan]", "[growl]", "[hum]", "[scream]", "[shout]", "[whimper]", "[yell]",
+                "[hissing]", "[sigh]", "[vocalized-noise]", "[huff]", "[singing]", "[squeak]", "[whistling]",
+                "[lipsmack]", "[mn]", "[grunt]", "[hiccup]", "[moan]", "[sneeze]", "[sob]", "[squeal]",
+                "[soft sigh]", "[giggles]", "[gasps]", "[sniffles]", "[panting]", "[snort]", "[wheeze]", "[yelp]",
+                "[throat-clear]", "[stretch grunt]", "[snort-laugh]", "[wheezes]", "[belly-laugh]", "[groan-yawn]", "[groans]", "[gentle sniffling]",
+                "[shouts]", "[moans]", "[tongue click]", "[giggle]", "[surprise yelp]", "[heavy breathing]", "[stutter]", "[nose blow]", "[sobbing]",
+                "[teeth chatter]", "[yawn]", "[hiccups]", "[gasp]", "[excited whoop]", "[whistle]", "[coughing fit]", "[mmm]", "[humming]",
+                "[gulp]", "[sniff]", "[sighs]", "[kissing sounds]", "[outright scream]", "[ah]", "[burp]"
             ]
         }
         self.special_tokens = special_tokens
