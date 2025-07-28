@@ -28,9 +28,9 @@ try:
     import ttsfrd
     use_ttsfrd = True
 except ImportError:
-    print("failed to import ttsfrd, use WeTextProcessing instead")
-    from tn.chinese.normalizer import Normalizer as ZhNormalizer
-    from tn.english.normalizer import Normalizer as EnNormalizer
+    print("failed to import ttsfrd, use wetext instead")
+    from wetext import Normalizer as ZhNormalizer
+    from wetext import Normalizer as EnNormalizer
     use_ttsfrd = False
 from cosyvoice.utils.file_utils import logging
 from cosyvoice.utils.frontend_utils import contains_chinese, replace_blank, replace_corner_mark, remove_bracket, spell_out_number, split_paragraph, is_only_punctuation
@@ -68,7 +68,7 @@ class CosyVoiceFrontEnd:
                 'failed to initialize ttsfrd resource'
             self.frd.set_lang_type('pinyinvg')
         else:
-            self.zh_tn_model = ZhNormalizer(remove_erhua=False, full_to_half=False, overwrite_cache=True)
+            self.zh_tn_model = ZhNormalizer(remove_erhua=False)
             self.en_tn_model = EnNormalizer()
             self.inflect_parser = inflect.engine()
 
@@ -179,8 +179,8 @@ class CosyVoiceFrontEnd:
         model_input['text_len'] = tts_text_token_len
         return model_input
 
-    def frontend_cross_lingual(self, tts_text, prompt_speech_16k, resample_rate):
-        model_input = self.frontend_zero_shot(tts_text, '', prompt_speech_16k, resample_rate, '')
+    def frontend_cross_lingual(self, tts_text, prompt_speech_16k, resample_rate, zero_shot_spk_id):
+        model_input = self.frontend_zero_shot(tts_text, '', prompt_speech_16k, resample_rate, zero_shot_spk_id)
         # in cross lingual mode, we remove prompt in llm
         del model_input['prompt_text']
         del model_input['prompt_text_len']
@@ -197,8 +197,8 @@ class CosyVoiceFrontEnd:
         model_input['prompt_text_len'] = instruct_text_token_len
         return model_input
 
-    def frontend_instruct2(self, tts_text, instruct_text, prompt_speech_16k, resample_rate):
-        model_input = self.frontend_zero_shot(tts_text, instruct_text + '<|endofprompt|>', prompt_speech_16k, resample_rate)
+    def frontend_instruct2(self, tts_text, instruct_text, prompt_speech_16k, resample_rate, zero_shot_spk_id):
+        model_input = self.frontend_zero_shot(tts_text, instruct_text + '<|endofprompt|>', prompt_speech_16k, resample_rate, zero_shot_spk_id)
         del model_input['llm_prompt_speech_token']
         del model_input['llm_prompt_speech_token_len']
         return model_input
