@@ -44,7 +44,8 @@ class CosyVoiceFrontEnd:
                  campplus_model: str,
                  speech_tokenizer_model: str,
                  spk2info: str = '',
-                 allowed_special: str = 'all'):
+                 allowed_special: str = 'all',
+                 wetext_path: str = ''):
         self.tokenizer = get_tokenizer()
         self.feat_extractor = feat_extractor
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -68,8 +69,10 @@ class CosyVoiceFrontEnd:
                 'failed to initialize ttsfrd resource'
             self.frd.set_lang_type('pinyinvg')
         else:
-            self.zh_tn_model = ZhNormalizer(remove_erhua=False)
-            self.en_tn_model = EnNormalizer()
+            wetext_path = os.getenv('WETEXT_PATH')
+            self.zh_tn_model = ZhNormalizer(remove_erhua=False, tagger_path=os.path.join(wetext_path, "zh/tn/tagger.fst"), verbalizer_path=os.path.join(wetext_path, "zh/tn/verbalizer.fst"), lang="zh")
+            self.en_tn_model = EnNormalizer(tagger_path=os.path.join(wetext_path, "en/tn/tagger.fst"), verbalizer_path=os.path.join(wetext_path, "en/tn/verbalizer.fst"), lang="en")
+
             self.inflect_parser = inflect.engine()
 
     def _extract_text_token(self, text):
