@@ -70,8 +70,12 @@ class CosyVoiceFrontEnd:
             self.frd.set_lang_type('pinyinvg')
         else:
             wetext_path = os.getenv('WETEXT_PATH')
-            self.zh_tn_model = ZhNormalizer(remove_erhua=False, tagger_path=os.path.join(wetext_path, "zh/tn/tagger.fst"), verbalizer_path=os.path.join(wetext_path, "zh/tn/verbalizer.fst"), lang="zh")
-            self.en_tn_model = EnNormalizer(tagger_path=os.path.join(wetext_path, "en/tn/tagger.fst"), verbalizer_path=os.path.join(wetext_path, "en/tn/verbalizer.fst"), lang="en")
+            if wetext_path:
+                self.zh_tn_model = ZhNormalizer(remove_erhua=False, tagger_path=os.path.join(wetext_path, "zh/tn/tagger.fst"), verbalizer_path=os.path.join(wetext_path, "zh/tn/verbalizer.fst"), lang="zh")
+                self.en_tn_model = EnNormalizer(tagger_path=os.path.join(wetext_path, "en/tn/tagger.fst"), verbalizer_path=os.path.join(wetext_path, "en/tn/verbalizer.fst"), lang="en")
+            else:
+                self.zh_tn_model = ZhNormalizer(remove_erhua=False)
+                self.en_tn_model = EnNormalizer()
 
             self.inflect_parser = inflect.engine()
 
