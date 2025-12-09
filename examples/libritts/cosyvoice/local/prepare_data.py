@@ -3,7 +3,7 @@ import logging
 import glob
 import os
 from tqdm import tqdm
-
+import random
 
 logger = logging.getLogger()
 
@@ -27,12 +27,31 @@ def main():
         except:
             print(content)
             continue
-        if spk in {'Achernar', 'Aoede', 'Autonoe', 'Despina', 'Erinome', 'Kore', 'Leda', 'Pulcherrima', 'Sulafat', 'Vindemiatrix', 'Zephyr'}:
-            content = f"You are {spk}. Speak in a {prompt.strip()} tone<|endofprompt|>{content}"
-            #content = f"Speak in a {prompt.strip()} tone<|endofprompt|>{content}"
+        if 'test' in spk:
+            spk = spk.split('-test')[0]
+            if spk in {'Achernar', 'Aoede', 'Autonoe', 'Despina', 'Erinome', 'Kore', 'Leda', 'Pulcherrima', 'Sulafat', 'Vindemiatrix', 'Zephyr'}:
+                content = f"You are {spk}. Speak in a {prompt.strip()} tone<|endofprompt|>{content}"
+            else:
+                content = f"You are {spk}. {prompt.strip()}<|endofprompt|>{content}"
+
         else:
-            content = f"You are Speaker_Actress. {prompt}<|endofprompt|>{content}"
-            #content = f"{prompt}<|endofprompt|>{content}"
+            rand_value = random.random()
+            if rand_value < 0.15:
+                content = f"You are {spk}. <|endofprompt|>{content}"
+            elif rand_value < 0.3:
+                if spk in {'Achernar', 'Aoede', 'Autonoe', 'Despina', 'Erinome', 'Kore', 'Leda', 'Pulcherrima', 'Sulafat', 'Vindemiatrix', 'Zephyr'}:
+                    content = f"Speak in a {prompt.strip()} tone<|endofprompt|>{content}"
+                else:
+                    content = f"{prompt.strip()}<|endofprompt|>{content}"
+
+            elif rand_value < 0.5:
+                content = content
+            else:
+                if spk in {'Achernar', 'Aoede', 'Autonoe', 'Despina', 'Erinome', 'Kore', 'Leda', 'Pulcherrima', 'Sulafat', 'Vindemiatrix', 'Zephyr'}:
+                    content = f"You are {spk}. Speak in a {prompt.strip()} tone<|endofprompt|>{content}"
+                else:
+                    content = f"You are {spk}. {prompt.strip()}<|endofprompt|>{content}"
+
 
         utt2wav[utt] = wav
         utt2text[utt] = content
