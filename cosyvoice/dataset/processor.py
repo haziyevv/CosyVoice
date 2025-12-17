@@ -20,8 +20,15 @@ import torch
 import torchaudio
 from torch.nn.utils.rnn import pad_sequence
 import torch.nn.functional as F
-import pyworld as pw
 
+pw = None  # lazy import for inference compatibility
+
+def _get_pyworld():
+    global pw
+    if pw is None:
+        import pyworld as pw_module
+        pw = pw_module
+    return pw
 
 AUDIO_FORMAT_SETS = {'flac', 'mp3', 'm4a', 'ogg', 'opus', 'wav', 'wma'}
 
@@ -194,6 +201,8 @@ def compute_f0(data, sample_rate, hop_size, mode='train'):
         Returns:
             Iterable[{key, feat, label}]
     """
+    pw = _get_pyworld()  # Add this line
+
     frame_period = hop_size * 1000 / sample_rate
     for sample in data:
         assert 'sample_rate' in sample
