@@ -21,11 +21,11 @@ import whisper
 from typing import Callable
 import torchaudio.compliance.kaldi as kaldi
 import os
+from copy import deepcopy
 import re
 import inflect
 from cosyvoice.utils.file_utils import logging, load_wav
 from cosyvoice.utils.frontend_utils import contains_chinese, replace_blank, replace_corner_mark, remove_bracket, spell_out_number, split_paragraph, is_only_punctuation
-
 
 class CosyVoiceFrontEnd:
 
@@ -139,6 +139,7 @@ class CosyVoiceFrontEnd:
         if '<|' in text and '|>' in text:
             text_frontend = False
         if text_frontend is False or text == '':
+            text = spell_out_number(text, self.inflect_parser)
             return [text] if split is True else text
         text = text.strip()
         if self.text_frontend == 'ttsfrd':
@@ -168,9 +169,14 @@ class CosyVoiceFrontEnd:
 
     def frontend_sft(self, tts_text, spk_id):
         tts_text_token, tts_text_token_len = self._extract_text_token(tts_text)
-        llm_embedding = self.spk2info[spk_id]['llm_embedding']
-        flow_embedding = self.spk2info[spk_id]['flow_embedding']
-        model_input = {'text': tts_text_token, 'text_len': tts_text_token_len, 'llm_embedding': llm_embedding, 'flow_embedding': flow_embedding}
+        model_input = deepcopy(self.spk2info[spk_id])
+        
+        model_input['text'] = tts_text_token
+        model_input['text_len'] = tts_text_token_len
+        del model_input['prompt_text']
+        del model_input['prompt_text_len']
+        del model_input['llm_prompt_speech_token']
+        del model_input['llm_prompt_speech_token_len']
         return model_input
 
     def frontend_zero_shot(self, tts_text, prompt_text, prompt_wav, resample_rate, zero_shot_spk_id):

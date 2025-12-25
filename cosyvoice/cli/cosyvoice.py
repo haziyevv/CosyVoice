@@ -68,7 +68,7 @@ class CosyVoice:
 
     def add_zero_shot_spk(self, prompt_text, prompt_wav, zero_shot_spk_id):
         assert zero_shot_spk_id != '', 'do not use empty zero_shot_spk_id'
-        model_input = self.frontend.frontend_zero_shot('', prompt_text, prompt_wav, self.sample_rate, '')
+        model_input = self.frontend.frontend_zero_shot('', '', prompt_wav, self.sample_rate, '')
         del model_input['text']
         del model_input['text_len']
         self.frontend.spk2info[zero_shot_spk_id] = model_input

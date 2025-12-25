@@ -257,7 +257,7 @@ class CosyVoice2Tokenizer():
                 "[hissing]", "[sigh]", "[vocalized-noise]", "[huff]", "[singing]", "[squeak]", "[whistling]",
                 "[lipsmack]", "[mn]", "[grunt]", "[hiccup]", "[moan]", "[sneeze]", "[sob]", "[squeal]",
                 "[soft sigh]", "[giggles]", "[gasps]", "[sniffles]", "[panting]", "[snort]", "[wheeze]", "[yelp]",
-                "[throat-clear]", "[stretch grunt]", "[snort-laugh]", "[wheezes]", "[belly-laugh]", "[groan-yawn]", "[groans]", "[gentle sniffling]",
+                "[throat-clear]", "[stretch grunt]", "[snort-laugh]", "[wheezes]", "[belly-laugh]", "[groan-yawn]", "[groans]", "[gentle sniffling]", "[laugh]",
                 "[shouts]", "[moans]", "[tongue click]", "[giggle]", "[surprise yelp]", "[heavy breathing]", "[stutter]", "[nose blow]", "[sobbing]",
                 "[teeth chatter]", "[yawn]", "[hiccups]", "[gasp]", "[excited whoop]", "[whistle]", "[coughing fit]", "[mmm]", "[humming]",
                 "[gulp]", "[sniff]", "[sighs]", "[kissing sounds]", "[outright scream]", "[ah]", "[burp]"
