@@ -140,7 +140,9 @@ class CosyVoiceFrontEnd:
             text_frontend = False
         if text_frontend is False or text == '':
             text = spell_out_number(text, self.inflect_parser)
-            return [text] if split is True else text
+            texts = list(split_paragraph(text, partial(self.tokenizer.encode, allowed_special=self.allowed_special), "en", token_max_n=80, token_min_n=60, merge_len=20, comma_split=False))
+
+            return texts
         text = text.strip()
         if self.text_frontend == 'ttsfrd':
             texts = [i["text"] for i in json.loads(self.frd.do_voicegen_frd(text))["sentences"]]
