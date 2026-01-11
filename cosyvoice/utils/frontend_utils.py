@@ -63,6 +63,8 @@ def spell_out_number(text: str, inflect_parser):
 # 2. cal sentence len according to lang
 # 3. split sentence according to puncatation
 def split_paragraph(text: str, tokenize, lang="zh", token_max_n=80, token_min_n=60, merge_len=20, comma_split=False):
+    if '<|endofprompt|>' in text:
+        instruction_text, text = text.split('<|endofprompt|>')
     def calc_utt_length(_text: str):
         if lang == "zh":
             return len(_text)
@@ -100,7 +102,7 @@ def split_paragraph(text: str, tokenize, lang="zh", token_max_n=80, token_min_n=
                 st = i + 2
             else:
                 st = i + 1
-
+    
     final_utts = []
     cur_utt = ""
     for utt in utts:
@@ -113,7 +115,7 @@ def split_paragraph(text: str, tokenize, lang="zh", token_max_n=80, token_min_n=
             final_utts[-1] = final_utts[-1] + cur_utt
         else:
             final_utts.append(cur_utt)
-
+    final_utts[0] = instruction_text + '<|endofprompt|>' + final_utts[0]
     return final_utts
 
 

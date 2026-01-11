@@ -253,6 +253,9 @@ class CosyVoice2Tokenizer():
                 "<laughter>", "</laughter>", "<groan>", "</groan>",
                 "<whisper>", "</whisper>", "<shout>", "</shout>",
                 "<cry>", "</cry>", "<scream>", "</scream>", "<moan>", "</moan>",
+                '<gasp>', '</gasp>', '<giggle>', '</giggle>', '<groan>', '</groan>',
+                '<moans>', '</moans>', '<panting>', '</panting>', '<sigh>', '</sigh>',
+                '<whimper>', '</whimper>',
                 "[chuckle]", "[groan]", "[growl]", "[hum]", "[scream]", "[shout]", "[whimper]", "[yell]",
                 "[hissing]", "[sigh]", "[vocalized-noise]", "[huff]", "[singing]", "[squeak]", "[whistling]",
                 "[lipsmack]", "[mn]", "[grunt]", "[hiccup]", "[moan]", "[sneeze]", "[sob]", "[squeal]",
@@ -282,10 +285,12 @@ class CosyVoice2Tokenizer():
 class CosyVoice3Tokenizer(CosyVoice2Tokenizer):
     def __init__(self, token_path, skip_special_tokens=True):
         # NOTE: non-chat model, all these special tokens keep randomly initialized.
+        # IMPORTANT: Keep original tokens in EXACT same order, add new tokens at END only!
         special_tokens = {
             'eos_token': '<|endoftext|>',
             'pad_token': '<|endoftext|>',
             'additional_special_tokens': [
+                # ===== ORIGINAL TOKENS (DO NOT REORDER) =====
                 '<|im_start|>', '<|im_end|>', '<|endofprompt|>',
                 '[breath]', '<strong>', '</strong>', '[noise]',
                 '[laughter]', '[cough]', '[clucking]', '[accent]',
@@ -312,7 +317,32 @@ class CosyVoice3Tokenizer(CosyVoice2Tokenizer):
                 "[éng]", "[ér]", "[ì]", "[ìn]", "[ìng]", "[í]", "[ín]", "[íng]", "[ò]", "[òng]", "[òu]", "[ó]", "[óng]", "[óu]",
                 "[ù]", "[ùn]", "[ú]", "[ún]", "[ā]", "[āi]", "[ān]", "[āng]", "[āo]", "[ē]", "[ēi]", "[ēn]", "[ēng]", "[ě]",
                 "[ěi]", "[ěn]", "[ěng]", "[ěr]", "[ī]", "[īn]", "[īng]", "[ō]", "[ōng]", "[ōu]", "[ū]", "[ūn]", "[ǎ]", "[ǎi]",
-                "[ǎn]", "[ǎng]", "[ǎo]", "[ǐ]", "[ǐn]", "[ǐng]", "[ǒ]", "[ǒng]", "[ǒu]", "[ǔ]", "[ǔn]", "[ǘ]", "[ǚ]", "[ǜ]"
+                "[ǎn]", "[ǎng]", "[ǎo]", "[ǐ]", "[ǐn]", "[ǐng]", "[ǒ]", "[ǒng]", "[ǒu]", "[ǔ]", "[ǔn]", "[ǘ]", "[ǚ]", "[ǜ]",
+                # ===== NEW TOKENS (added at end to preserve IDs) =====
+                "<groan>", "</groan>", "<whisper>", "</whisper>",
+                "<gasp>", "</gasp>", "<giggle>", "</giggle>", "<moans>", "</moans>", "<panting>", "</panting>",
+                "<shout>", "</shout>", "<cry>", "</cry>", "<scream>", "</scream>", "<moan>", "</moan>",
+                "<sigh>", "</sigh>",
+                "[burp]", "[clap]", "[cry]", "[ah]", "[aww]", "[breathing]", "[breathy]",
+                "[bubbling]", "[choke]", "[choking]", "[chuckle]", "[click]",
+                "[crying]", "[exhale]", "[gag]", "[gagging]", "[gasp]", "[gasps]",
+                "[gasping]", "[giggle]", "[giggles]", "[groan]", "[groans]", "[growl]", "[grumble]", "[grunt]",
+                "[gulp]", "[gurgle]", "[hesitation]", "[hiccup]", "[hiss]", "[hmm]",
+                "[hmph]", "[huff]", "[hum]", "[humming]", "[hush]", "[hushing]", "[inhale]",
+                "[kiss]", "[kisses]", "[kissing]", "[laugh]", "[mhm]", "[mm]", "[mmh]", "[mmm]",
+                "[moan]", "[moans]", "[mumble]", "[munch]", "[murmur]", "[nya]", "[panting]", "[pop]",
+                "[psst]", "[purr]", "[scoff]", "[scream]", "[shiver]", "[shivering]", "[shout]",
+                "[shouts]", "[shush]", "[shushing]", "[sighs]", "[singing]", "[sip]", "[slurp]",
+                "[smack]", "[smirk]", "[sneeze]", "[snicker]", "[sniff]", "[sniffle]", "[sniffles]", "[snort]",
+                "[sob]", "[sobbing]", "[soft sigh]", "[sound]", "[squeal]", "[squeak]", "[strain]",
+                "[stutter]", "[suckling]", "[taste]", "[tsk]",
+                "[wail]", "[wheeze]", "[wheezes]", "[whimper]", "[whisper]", "[whistle]", "[whistling]",
+                "[yawn]", "[yell]", "[yelp]",
+                "[throat-clear]", "[stretch grunt]", "[snort-laugh]", "[belly-laugh]",
+                "[groan-yawn]", "[gentle sniffling]",
+                "[tongue click]", "[surprise yelp]", "[heavy breathing]", "[nose blow]",
+                "[teeth chatter]", "[hiccups]", "[excited whoop]", "[coughing fit]",
+                "[kissing sounds]", "[outright scream]",
             ]
         }
         self.special_tokens = special_tokens

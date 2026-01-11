@@ -231,7 +231,16 @@ class Qwen2Encoder(torch.nn.Module):
     def __init__(self, pretrain_path):
         super().__init__()
         self.model = Qwen2ForCausalLM.from_pretrained(pretrain_path)
+        from cosyvoice.tokenizer.tokenizer import get_qwen_tokenizer
+        tokenizer = get_qwen_tokenizer(token_path=pretrain_path, skip_special_tokens=True, version='cosyvoice3')
+        text_token_size = len(tokenizer.tokenizer)
+        logging.info(f"Auto-detected text_token_size={text_token_size} from tokenizer version=cosyvoice3")
+        
+        if text_token_size is not None and text_token_size > self.model.config.vocab_size:
+            logging.info(f"Resizing Qwen2 embeddings from {self.model.config.vocab_size} to {text_token_size}")
+            self.model.resize_token_embeddings(text_token_size)
 
+    
     def forward(self, xs: torch.Tensor, xs_lens: torch.Tensor):
         T = xs.size(1)
         masks = ~make_pad_mask(xs_lens, T)
@@ -678,7 +687,7 @@ class CosyVoice3LM(Qwen2LM):
         # NOTE should append instruct_token to sequence, not implemented yet
         instruct_token = batch['instruct_token'].to(device)
         instruct_token_len = batch['instruct_token_len'].to(device)
-
+        
         # 1. encode text_token
         text_token_emb = self.llm.model.model.embed_tokens(text_token)
 

@@ -28,18 +28,17 @@ def main():
         except:
             print(content)
             continue
-
         if 'test' in spk:
             spk = spk.split('-test')[0]
             if spk in {'Achernar', 'Aoede', 'Autonoe', 'Despina', 'Erinome', 'Kore', 'Leda', 'Pulcherrima', 'Sulafat', 'Vindemiatrix', 'Zephyr'}:
-                content = f"You are {spk}. Speak in a {prompt.strip()} tone<|endofprompt|>{content}"
+                content = f"You are a helpfull assistant. You are {spk}. Speak in a {prompt.strip()} tone<|endofprompt|>{content}"
             else:
-                content = f"You are {spk}. {prompt.strip()}<|endofprompt|>{content}"
+                content = f"You are a helpfull assistant. You are {spk}. {prompt.strip()}<|endofprompt|>{content}"
         else:
             if spk in {'Achernar', 'Aoede', 'Autonoe', 'Despina', 'Erinome', 'Kore', 'Leda', 'Pulcherrima', 'Sulafat', 'Vindemiatrix', 'Zephyr'}:
-                content = f"You are {spk}. Speak in a {prompt.strip()} tone<|endofprompt|>{content}"
+                content = f"You are a helpfull assistant. You are {spk}. Speak in a {prompt.strip()} tone<|endofprompt|>{content}"
             else:
-                content = f"You are {spk}. {prompt.strip()}<|endofprompt|>{content}"
+                content = f"You are a helpfull assistant. You are {spk}. {prompt.strip()}<|endofprompt|>{content}"
         
         utt2wav[utt] = wav
         utt2text[utt] = content

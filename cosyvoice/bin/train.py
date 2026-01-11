@@ -127,7 +127,6 @@ def main():
     # Tensorboard summary
     writer = init_summarywriter(args)
 
-    # load checkpoint
     if args.dpo is True:
         configs[args.model].forward = configs[args.model].forward_dpo
     model = configs[args.model]
@@ -135,13 +134,35 @@ def main():
     if args.checkpoint is not None:
         if os.path.exists(args.checkpoint):
             state_dict = torch.load(args.checkpoint, map_location='cpu')
-            model.load_state_dict(state_dict, strict=False)
+            # Filter out keys with shape mismatch (e.g., resized embeddings)
+            model_state_dict = model.state_dict()
+            filtered_state_dict = {}
+            partial_load_keys = []
+            for k, v in state_dict.items():
+                if k in model_state_dict:
+                    if v.shape == model_state_dict[k].shape:
+                        filtered_state_dict[k] = v
+                    else:
+                        logging.warning(f'Skipping {k} due to shape mismatch: checkpoint {v.shape} vs model {model_state_dict[k].shape}')
+                        # For embedding layers, partially copy the weights that fit
+                        if 'embed_tokens' in k or 'lm_head' in k:
+                            min_size = min(v.shape[0], model_state_dict[k].shape[0])
+                            # Create a new tensor with model's shape, copy old weights
+                            new_weight = model_state_dict[k].clone()
+                            new_weight[:min_size] = v[:min_size]
+                            filtered_state_dict[k] = new_weight
+                            partial_load_keys.append(k)
+                            logging.info(f'Partially loaded {k}: copied {min_size}/{model_state_dict[k].shape[0]} rows from checkpoint')
+            model.load_state_dict(filtered_state_dict, strict=False)
+            if partial_load_keys:
+                logging.info(f'Partially loaded keys: {partial_load_keys}')
             if 'step' in state_dict:
                 start_step = state_dict['step']
             if 'epoch' in state_dict:
                 start_epoch = state_dict['epoch']
         else:
             logging.warning('checkpoint {} do not exsist!'.format(args.checkpoint))
+    
 
     # Dispatch model from cpu to gpu
     model = wrap_cuda_model(args, model)
