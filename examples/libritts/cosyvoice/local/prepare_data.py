@@ -3,7 +3,20 @@ import logging
 import glob
 import os
 from tqdm import tqdm
+import re
+import pickle
 
+with open('/workspace/CosyVoice-mine-current/examples/libritts/cosyvoice3/gemini_voice_tags.pkl', 'rb') as fr:
+    gemini_voice_tags = pickle.load(fr)
+
+with open('/workspace/CosyVoice-mine-current/examples/libritts/cosyvoice3/acctress_voice_tags.pkl', 'rb') as fr:
+    acctress_voice_tags = pickle.load(fr)
+
+with open('/workspace/CosyVoice-mine-current/examples/libritts/cosyvoice3/acctress_emotion_tags.pkl', 'rb') as fr:
+    acctress_emotion_tags = pickle.load(fr)
+
+with open('/workspace/CosyVoice-mine-current/examples/libritts/cosyvoice3/prompt_counts.pkl', 'rb') as fr:
+    prompt_counts = pickle.load(fr)
 
 logger = logging.getLogger()
 
@@ -31,13 +44,39 @@ def main():
         if 'test' in spk:
             spk = spk.split('-test')[0]
             if spk in {'Achernar', 'Aoede', 'Autonoe', 'Despina', 'Erinome', 'Kore', 'Leda', 'Pulcherrima', 'Sulafat', 'Vindemiatrix', 'Zephyr'}:
+                tags = re.findall('\[[\w\s\-]+\]', content)
+                if any([x not in gemini_voice_tags for x in tags]):
+                    continue
+                emotions = prompt.split(', ')
+                if any([prompt_counts.get(x.strip(), 1) < 50 for x in emotions]):
+                    continue
                 content = f"You are a helpfull assistant. You are {spk}. Speak in a {prompt.strip()} tone<|endofprompt|>{content}"
+
             else:
+                tags = re.findall('\[[\w\s\-]+\]', content)
+                if any([x not in acctress_voice_tags for x in tags]):
+                    continue
+                emotion_tags = re.findall('\<[\w\s\-]+\>', content)
+                if any([tag not in acctress_emotion_tags for tag in emotion_tags]):
+                    continue
                 content = f"You are a helpfull assistant. You are {spk}. {prompt.strip()}<|endofprompt|>{content}"
         else:
             if spk in {'Achernar', 'Aoede', 'Autonoe', 'Despina', 'Erinome', 'Kore', 'Leda', 'Pulcherrima', 'Sulafat', 'Vindemiatrix', 'Zephyr'}:
+                tags = re.findall('\[[\w\s\-]+\]', content)
+                if any([x not in gemini_voice_tags for x in tags]):
+                    continue
+                emotions = prompt.split(', ')
+                if any([prompt_counts.get(x.strip(), 1) < 50 for x in emotions]):
+                    continue
                 content = f"You are a helpfull assistant. You are {spk}. Speak in a {prompt.strip()} tone<|endofprompt|>{content}"
+
             else:
+                tags = re.findall('\[[\w\s\-]+\]', content)
+                if any([x not in acctress_voice_tags for x in tags]):
+                    continue
+                emotion_tags = re.findall('\<[\w\s\-]+\>', content)
+                if any([tag not in acctress_emotion_tags for tag in emotion_tags]):
+                    continue
                 content = f"You are a helpfull assistant. You are {spk}. {prompt.strip()}<|endofprompt|>{content}"
         
         utt2wav[utt] = wav
@@ -59,7 +98,6 @@ def main():
         for k, v in spk2utt.items():
             f.write('{} {}\n'.format(k, ' '.join(v)))
     if args.instruct is True:
-        import pdb; pdb.set_trace()
         with open('{}/instruct'.format(args.des_dir), 'w') as f:
             for k, v in utt2text.items():
                 # NOTE in CosyVoice3, we add instruct in sequence
